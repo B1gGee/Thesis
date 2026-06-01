@@ -6,15 +6,15 @@ import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment
 from openpyxl.worksheet.datavalidation import DataValidation
 from io import BytesIO
+import time
+import requests
+import appdirs as ad
 
 st.set_page_config(page_title="Stock Thesis Monitor", layout="wide", page_icon="📈")
 
 st.title("📊 Stock Thesis Monitor")
 st.caption("Automated thesis builder • Entry / Mid / High Level • Custom triggers • GitHub-ready")
 
-import time
-import requests
-import appdirs as ad
 
 # Fix for Streamlit Cloud cache permission error
 ad.user_cache_dir = lambda *args: "/tmp"
