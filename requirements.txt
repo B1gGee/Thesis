@@ -3,3 +3,4 @@ yfinance
 pandas
 curl_cffi
 appdirs
+plotly
