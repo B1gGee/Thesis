@@ -42,7 +42,7 @@ if 'alpha_calls' not in st.session_state:
     st.session_state.alpha_calls = 0
 st.sidebar.info(f"**Alpha Vantage calls this session: {st.session_state.alpha_calls}** (25 free/day)")
 
-ticker = st.sidebar.text_input("Enter Ticker (e.g. AAPL, TSLA, BHP.AX, RIO.AX)", value="AAPL").upper().strip()
+ticker = st.sidebar.text_input("Enter Ticker (e.g. AAPL, TSLA, BHP.AX, RIO.AX, AYA.AX)", value="AAPL").upper().strip()
 
 if st.sidebar.button("Generate Thesis"):
     with st.spinner(f"Fetching data for {ticker}..."):
@@ -51,7 +51,7 @@ if st.sidebar.button("Generate Thesis"):
 
         # 1. PRIORITY 1: Yahoo Finance
         st.info("🔄 Trying Yahoo Finance first (Priority 1)...")
-        for attempt in range(4):
+        for attempt in range(5):
             try:
                 session = requests.Session()
                 session.headers.update({'User-Agent': 'Mozilla/5.0'})
@@ -61,15 +61,17 @@ if st.sidebar.button("Generate Thesis"):
                 st.success("✅ Loaded from Yahoo Finance")
                 break
             except:
-                st.warning(f"Yahoo attempt {attempt+1} failed")
+                st.warning(f"Yahoo attempt {attempt+1}/5 failed")
                 time.sleep(2)
 
-        # 2. PRIORITY 2: FMP
+        # 2. PRIORITY 2: FMP (improved for .AX and unusual tickers)
         if not info and fmp_key:
             st.info("🔄 Yahoo failed → Trying FMP (Priority 2)...")
             tickers_to_try = [ticker]
             if ticker.endswith('.AX'):
                 tickers_to_try.append(ticker.replace('.AX', ''))
+            elif '.' not in ticker:
+                tickers_to_try.append(ticker + '.AX')
             for t in tickers_to_try:
                 try:
                     profile = requests.get(f"https://financialmodelingprep.com/api/v3/profile/{t}?apikey={fmp_key}", timeout=10).json()
@@ -101,7 +103,10 @@ if st.sidebar.button("Generate Thesis"):
                         source = "Financial Modeling Prep (FMP)"
                         st.success(f"✅ Loaded from FMP using {t}")
                         break
-                except:
+                    else:
+                        st.warning(f"FMP returned no data for {t}")
+                except Exception as e:
+                    st.warning(f"FMP error for {t}: {type(e).__name__}")
                     continue
 
         # 3. LAST RESORT: Alpha Vantage
@@ -139,7 +144,7 @@ if st.sidebar.button("Generate Thesis"):
                 pass
 
         if not info:
-            st.error("❌ All sources failed. Try again in 1-2 minutes or use a US ticker like AAPL.")
+            st.error("❌ All sources failed. Try again in 1-2 minutes or use a major US ticker like AAPL or TSLA.")
             st.stop()
 
         today = datetime.now().strftime("%Y-%m-%d")
@@ -210,13 +215,12 @@ if st.sidebar.button("Generate Thesis"):
         st.markdown("**Entry-Level Triggers**")
         st.data_editor(pd.DataFrame([{"Trigger": "Earnings beat + raised guidance", "Color": "Green"}, {"Trigger": "New catalyst (contract win)", "Color": "Green"}, {"Trigger": "Price dips on no news", "Color": "Orange"}, {"Trigger": "Major miss + lowered guidance", "Color": "Red"}]), use_container_width=True, hide_index=True)
 
-        # === MID-LEVEL (SAFE VERSION - this was the crashing line) ===
+        # === MID-LEVEL (safe) ===
         st.markdown("### 📌 Mid-Level (Core 20-30 min)")
         roe = info.get('returnOnEquity')
         debt_eq = info.get('debtToEquity')
         fcf = info.get('freeCashflow')
-        insider = info.get('heldPercentInsiders') or 0          # ← SAFE
-
+        insider = info.get('heldPercentInsiders') or 0
         mid_data = {
             "ROE / ROIC": [f"{(roe or 0)*100:.1f}%" if roe is not None else '<Unable to Source>'],
             "Debt/Equity": [debt_eq if debt_eq is not None else '<Unable to Source>'],
