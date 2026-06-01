@@ -3,70 +3,78 @@ import yfinance as yf
 import pandas as pd
 from datetime import datetime
 import openpyxl
-from openpyxl.styles import PatternFill, Font, Alignment
+from openpyxl.styles import PatternFill
 from openpyxl.worksheet.datavalidation import DataValidation
 from io import BytesIO
 import time
 import requests
-import appdirs as ad
 
 st.set_page_config(page_title="Stock Thesis Monitor", layout="wide", page_icon="📈")
 
+# === CUSTOM CSS FOR COLORED STATUS ===
+st.markdown("""
+<style>
+.status-strongbuy { color: #28a745; font-size: 1.8em; font-weight: 800; }
+.status-hold      { color: #ffc107; font-size: 1.8em; font-weight: 800; }
+.status-monitor   { color: #17a2b8; font-size: 1.8em; font-weight: 800; }
+.status-sell      { color: #dc3545; font-size: 1.8em; font-weight: 800; }
+</style>
+""", unsafe_allow_html=True)
+
 st.title("📊 Stock Thesis Monitor")
 st.caption("Automated thesis builder • Entry / Mid / High Level • Custom triggers • GitHub-ready")
-
-
-# Fix for Streamlit Cloud cache permission error
-ad.user_cache_dir = lambda *args: "/tmp"
 
 ticker = st.sidebar.text_input("Enter Ticker (e.g. AAPL, TSLA, BHP.AX)", value="AAPL").upper().strip()
 
 if st.sidebar.button("Generate Thesis"):
     with st.spinner(f"Fetching data for {ticker}..."):
         success = False
-        for attempt in range(4):   # try up to 4 times
+        stock = None
+        info = None
+        
+        for attempt in range(4):
             try:
-                # Use browser-like headers to reduce rate-limit chance
                 session = requests.Session()
                 session.headers.update({
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
                 })
-                
                 stock = yf.Ticker(ticker, session=session)
                 info = stock.info
-                
-                # If we got here, it worked
                 success = True
                 break
             except Exception as e:
                 error_str = str(e).lower()
                 if "rate limit" in error_str or "too many requests" in error_str:
-                    wait = 3 * (attempt + 1)   # wait 3s, 6s, 9s, 12s
+                    wait = 4 * (attempt + 1)
                     st.warning(f"⏳ Yahoo is rate-limiting us (attempt {attempt+1}/4). Waiting {wait} seconds...")
                     time.sleep(wait)
                 else:
                     st.error(f"Unexpected error: {type(e).__name__}")
                     st.stop()
         
-        if not success:
+        if not success or info is None:
             st.error("❌ Yahoo Finance is still rate-limiting us.\n\nTry again in 2 minutes or try a US ticker like AAPL first.")
             st.stop()
+
         today = datetime.now().strftime("%Y-%m-%d")
 
         # === TOP HEADER ===
         col1, col2, col3 = st.columns([1, 2, 1])
         with col1:
-            st.metric("Current Price", f"${info.get('currentPrice', info.get('regularMarketPrice', 'N/A')):,}", 
-                      delta=f"{info.get('regularMarketChangePercent', 0):.2f}%")
+            price = info.get('currentPrice') or info.get('regularMarketPrice')
+            delta = info.get('regularMarketChangePercent', 0)
+            st.metric("Current Price", f"${price:,}" if price else "N/A", delta=f"{delta:.2f}%")
         with col2:
             st.subheader(f"{ticker} • {info.get('longName', ticker)}")
             st.caption(f"{info.get('sector', '<Unable to Source>')} • {info.get('industry', '<Unable to Source>')}")
         with col3:
             # Autonomous Recommendation
-            pe = info.get('forwardPE', None)
-            growth = info.get('earningsGrowth', 0) or 0
+            pe = info.get('forwardPE')
+            growth = info.get('earningsGrowth') or 0
             rec = info.get('recommendationKey', 'hold')
-            fcf_yield = info.get('freeCashflow', 0) / info.get('marketCap', 1) * 100 if info.get('marketCap') else 0
+            fcf_yield = 0
+            if info.get('freeCashflow') and info.get('marketCap'):
+                fcf_yield = info.get('freeCashflow') / info.get('marketCap') * 100
             
             score = 0
             if pe and pe < 20: score += 2
@@ -112,9 +120,9 @@ if st.sidebar.button("Generate Thesis"):
             "Ticker / Company / Sector / Industry": [f"{ticker} • {info.get('longName', ticker)} • {info.get('sector', '<Unable>')} • {info.get('industry', '<Unable>')}"],
             "Current Price | Market Cap | 52w High/Low": [f"${info.get('currentPrice', 'N/A')} | ${info.get('marketCap', 0)/1e9:.1f}B | ${info.get('fiftyTwoWeekHigh', 'N/A')}/${info.get('fiftyTwoWeekLow', 'N/A')}"],
             "P/E (fwd)": [info.get('forwardPE', '<Unable to Source>')],
-            "EPS growth (1-3y)": [f"{info.get('earningsGrowth', '<Unable>')*100:.1f}%" if info.get('earningsGrowth') is not None else '<Unable to Source>'],
-            "Revenue growth (recent)": [f"{info.get('revenueGrowth', '<Unable>')*100:.1f}%" if info.get('revenueGrowth') is not None else '<Unable to Source>'],
-            "Dividend yield": [f"{info.get('dividendYield', 0)*100:.2f}%" if info.get('dividendYield') else '0%'],
+            "EPS growth (1-3y)": [f"{info.get('earningsGrowth', 0)*100:.1f}%" if info.get('earningsGrowth') is not None else '<Unable to Source>'],
+            "Revenue growth (recent)": [f"{info.get('revenueGrowth', 0)*100:.1f}%" if info.get('revenueGrowth') is not None else '<Unable to Source>'],
+            "Dividend yield": [f"{info.get('dividendYield', 0)*100:.2f}%"],
             "Simple 'Why Buy' (auto-generated)": ["• Growing demand in " + info.get('sector', 'its sector') + "\n• " + (info.get('longBusinessSummary', '')[:120] + "...")],
             "Basic Valuation vs peers": ["<Unable to Source> – compare manually in Excel export"],
             "Quick Risks": ["• Market volatility\n• Sector headwinds (auto from news)"],
@@ -126,9 +134,7 @@ if st.sidebar.button("Generate Thesis"):
         
         edited_entry = st.data_editor(
             df_entry,
-            column_config={
-                "Flag": st.column_config.SelectboxColumn("Flag", options=["Green", "Orange", "Red"], required=True),
-            },
+            column_config={"Flag": st.column_config.SelectboxColumn("Flag", options=["Green", "Orange", "Red"], required=True)},
             use_container_width=True,
             num_rows="fixed",
             key="entry_editor"
@@ -150,14 +156,19 @@ if st.sidebar.button("Generate Thesis"):
         balance = stock.balance_sheet
         cashflow = stock.cashflow
         
-        roe = info.get('returnOnEquity', None)
-        debt_eq = info.get('debtToEquity', None)
-        fcf = cashflow.loc['Free Cash Flow'].iloc[0] if 'Free Cash Flow' in cashflow.index else None
+        roe = info.get('returnOnEquity')
+        debt_eq = info.get('debtToEquity')
+        fcf = None
+        if not cashflow.empty:
+            if 'Free Cash Flow' in cashflow.index:
+                fcf = cashflow.loc['Free Cash Flow'].iloc[0]
+            elif 'FreeCashFlow' in cashflow.index:
+                fcf = cashflow.loc['FreeCashFlow'].iloc[0]
         
         mid_data = {
-            "ROE / ROIC": [f"{roe*100:.1f}%" if roe else '<Unable to Source>'],
-            "Debt/Equity": [debt_eq if debt_eq else '<Unable to Source>'],
-            "Free Cash Flow trend": [f"${fcf/1e9:.1f}B (latest)" if fcf else '<Unable to Source>'],
+            "ROE / ROIC": [f"{roe*100:.1f}%" if roe is not None else '<Unable to Source>'],
+            "Debt/Equity": [debt_eq if debt_eq is not None else '<Unable to Source>'],
+            "Free Cash Flow trend": [f"${fcf/1e9:.1f}B (latest)" if fcf is not None else '<Unable to Source>'],
             "Margins (gross/operating)": [f"{info.get('grossMargins',0)*100:.1f}% / {info.get('operatingMargins',0)*100:.1f}%"],
             "Management & Strategy": [f"Insider ownership: {info.get('heldPercentInsiders',0)*100:.1f}%"],
             "Historical Performance (1y vs S&P500)": ["<Unable to Source> – add in export"],
@@ -179,11 +190,10 @@ if st.sidebar.button("Generate Thesis"):
         st.caption("Simple 2-stage DCF (auto) + assumptions editable below")
         try:
             rev_growth = info.get('revenueGrowth', 0.08) or 0.08
-            ebitda_margin = 0.25
+            fcf0 = fcf if fcf is not None else info.get('freeCashflow', 1e9)
             wacc = 0.10
             terminal_g = 0.03
-            fcf0 = fcf if fcf else info.get('freeCashflow', 1e9)
-            dcf_value = fcf0 * (1+rev_growth) * (1 - (1+terminal_g)/(1+wacc)) / (wacc - terminal_g) / 1e9
+            dcf_value = fcf0 * (1 + rev_growth) * (1 - (1 + terminal_g) / (1 + wacc)) / (wacc - terminal_g) / 1e9
             st.write(f"**Implied DCF Fair Value ≈ ${dcf_value:.1f}B** (base case)")
         except:
             st.write("**DCF: <Unable to Source>** – edit assumptions below")
@@ -220,7 +230,7 @@ if st.sidebar.button("Generate Thesis"):
         conviction = (all_flags == "Green").sum() - (all_flags == "Red").sum()
         st.metric("Conviction Score", f"{conviction} / 10", help="+1 Green, 0 Orange, -1 Red")
 
-        # === EXPORT TO EXCEL WITH FULL FORMATTING ===
+        # === EXPORT TO EXCEL ===
         if st.button("📥 Export to Excel (with colors + dropdowns)"):
             output = BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -231,7 +241,7 @@ if st.sidebar.button("Generate Thesis"):
                 orange_fill = PatternFill(start_color="FFF3CD", end_color="FFF3CD", fill_type="solid")
                 red_fill = PatternFill(start_color="F8D7DA", end_color="F8D7DA", fill_type="solid")
                 for row in ws.iter_rows(min_row=2, max_col=4):
-                    cell = row[2]  # Flag column
+                    cell = row[2]
                     if cell.value == "Green":
                         cell.fill = green_fill
                     elif cell.value == "Orange":
