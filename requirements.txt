@@ -1,4 +1,6 @@
-streamlit
-yfinance
-pandas
-plotly
+```txt
+streamlit==1.38.0
+yfinance==0.2.48
+pandas==2.2.3
+openpyxl==3.1.5
+python-dateutil
