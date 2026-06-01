@@ -121,5 +121,4 @@ with colY:
         st.info(f"Full detailed thesis for {active_ticker} generated based on its latest financials and news... (ready to copy)")
 
 st.caption("✅ This RICH THESIS SECTION is now fully dynamic — it pulls live data for whatever ticker you enter.")
-st.success("Test: Type **STRC**, **AAPL**, or **BHP.AX** → click LOAD → you should see the company name, real price, and dynamic content change every time.")N added. Everything now updates when you change the ticker and click LOAD.")
-st.success("Test it now: Type **STRC** or **AYA.AX** → click LOAD / UPDATE Thesis → you should see a rich, detailed thesis that matches the original AYA mock.")
+st.success("Test: Type **STRC**, **AAPL**, or **BHP.AX** → click LOAD → you should see the company name, real price, and dynamic content change every time.")
