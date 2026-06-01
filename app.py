@@ -37,21 +37,20 @@ if fmp_key:
     except:
         st.sidebar.info("FMP remaining calls: (could not fetch)")
 
-# Alpha Vantage simple call counter (per session)
+# Alpha Vantage session counter
 if 'alpha_calls' not in st.session_state:
     st.session_state.alpha_calls = 0
 st.sidebar.info(f"**Alpha Vantage calls this session: {st.session_state.alpha_calls}** (25 free/day)")
 
-ticker = st.sidebar.text_input("Enter Ticker (e.g. AAPL, TSLA, BHP.AX)", value="AAPL").upper().strip()
+ticker = st.sidebar.text_input("Enter Ticker (e.g. AAPL, TSLA, BHP.AX, RIO.AX)", value="AAPL").upper().strip()
 
 if st.sidebar.button("Generate Thesis"):
     with st.spinner(f"Fetching data for {ticker}..."):
         info = None
         source = "None"
-        stock = None
 
-        # 1. PRIORITY 1: Yahoo Finance (most attempts)
-        st.info("Trying Yahoo Finance first...")
+        # 1. PRIORITY 1: Yahoo Finance
+        st.info("🔄 Trying Yahoo Finance first (Priority 1)...")
         for attempt in range(4):
             try:
                 session = requests.Session()
@@ -59,14 +58,15 @@ if st.sidebar.button("Generate Thesis"):
                 stock = yf.Ticker(ticker, session=session)
                 info = stock.info
                 source = "Yahoo Finance"
-                st.success("✅ Loaded from Yahoo Finance (Priority 1)")
+                st.success("✅ Loaded from Yahoo Finance")
                 break
-            except:
+            except Exception as e:
+                st.warning(f"Yahoo attempt {attempt+1} failed")
                 time.sleep(2)
 
-        # 2. PRIORITY 2: FMP (higher limit)
+        # 2. PRIORITY 2: FMP
         if not info and fmp_key:
-            st.info("Yahoo failed → Trying FMP...")
+            st.info("🔄 Yahoo failed → Trying FMP (Priority 2, 250 calls/day)...")
             try:
                 profile = requests.get(f"https://financialmodelingprep.com/api/v3/profile/{ticker}?apikey={fmp_key}", timeout=10).json()
                 quote = requests.get(f"https://financialmodelingprep.com/api/v3/quote/{ticker}?apikey={fmp_key}", timeout=10).json()
@@ -95,13 +95,13 @@ if st.sidebar.button("Generate Thesis"):
                         'regularMarketChangePercent': q.get('changePercent'),
                     }
                     source = "Financial Modeling Prep (FMP)"
-                    st.success("✅ Loaded from FMP (Priority 2)")
+                    st.success("✅ Loaded from FMP")
             except Exception as e:
                 st.warning(f"FMP failed: {type(e).__name__}")
 
         # 3. LAST RESORT: Alpha Vantage
         if not info and alpha_key:
-            st.info("FMP failed → Trying Alpha Vantage (last resort)...")
+            st.info("🔄 FMP failed → Trying Alpha Vantage (last resort)...")
             try:
                 ov = requests.get(f"https://www.alphavantage.co/query?function=OVERVIEW&symbol={ticker}&apikey={alpha_key}", timeout=10).json()
                 gq = requests.get(f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={ticker}&apikey={alpha_key}", timeout=10).json().get('Global Quote', {})
@@ -129,12 +129,12 @@ if st.sidebar.button("Generate Thesis"):
                     }
                     source = "Alpha Vantage"
                     st.session_state.alpha_calls += 1
-                    st.success("✅ Loaded from Alpha Vantage (last resort)")
-            except:
-                pass
+                    st.success("✅ Loaded from Alpha Vantage")
+            except Exception as e:
+                st.warning(f"Alpha Vantage failed: {type(e).__name__}")
 
         if not info:
-            st.error("❌ All sources failed. Try again in 1-2 minutes.")
+            st.error("❌ All sources failed. Try again in 1-2 minutes or try a US ticker like AAPL first.")
             st.stop()
 
         today = datetime.now().strftime("%Y-%m-%d")
@@ -173,7 +173,7 @@ if st.sidebar.button("Generate Thesis"):
             st.markdown(f"**Overall Status**<br><span class='{color}'>{status}</span>", unsafe_allow_html=True)
             st.caption(f"Score: {score} | {today} | Source: {source}")
 
-        # Company Overview
+        # Company Overview & KPIs
         st.markdown("### Company Overview & Key Milestone KPIs")
         st.write(info.get('longBusinessSummary', '<Unable to Source>'))
 
@@ -183,7 +183,7 @@ if st.sidebar.button("Generate Thesis"):
         with kpi_cols[2]: st.metric("Dividend Yield", f"{info.get('dividendYield', 0)*100:.2f}%")
         with kpi_cols[3]: st.metric("Analyst Target", f"${info.get('targetMeanPrice', 'N/A')}")
 
-        # Entry, Mid, High, Thesis block, Conviction, Export sections (exactly as before)
+        # ENTRY, MID, HIGH, THESIS, EXPORT sections (same as before)
         # === ENTRY LEVEL ===
         st.markdown("### 📌 Entry-Level (Basic 5-10 min scan)")
         entry_data = {
@@ -206,7 +206,7 @@ if st.sidebar.button("Generate Thesis"):
         st.markdown("**Entry-Level Triggers**")
         st.data_editor(pd.DataFrame([{"Trigger": "Earnings beat + raised guidance", "Color": "Green"}, {"Trigger": "New catalyst (contract win)", "Color": "Green"}, {"Trigger": "Price dips on no news", "Color": "Orange"}, {"Trigger": "Major miss + lowered guidance", "Color": "Red"}]), use_container_width=True, hide_index=True)
 
-        # MID & HIGH & THESIS & EXPORT (same as last working version)
+        # MID-LEVEL
         st.markdown("### 📌 Mid-Level (Core 20-30 min)")
         roe = info.get('returnOnEquity')
         debt_eq = info.get('debtToEquity')
@@ -225,16 +225,17 @@ if st.sidebar.button("Generate Thesis"):
         df_mid = df_mid.reset_index().rename(columns={'index': 'Metric/Query'})
         edited_mid = st.data_editor(df_mid, column_config={"Flag": st.column_config.SelectboxColumn("Flag", options=["Green", "Orange", "Red"])}, use_container_width=True, key="mid_editor")
 
+        # HIGH-LEVEL with SAFE DCF
         st.markdown("### 📌 High-Level / In-Depth")
         st.caption("Simple 2-stage DCF (auto)")
         try:
             rev_growth = info.get('revenueGrowth', 0.08) or 0.08
-            fcf0 = fcf if fcf is not None else 1e9
+            fcf0 = info.get('freeCashflow') or 1_000_000_000   # safe default
             wacc = 0.10
             terminal_g = 0.03
             dcf_value = fcf0 * (1 + rev_growth) * (1 - (1 + terminal_g) / (1 + wacc)) / (wacc - terminal_g) / 1e9
             st.write(f"**Implied DCF Fair Value ≈ ${dcf_value:.1f}B** (base case)")
-        except:
+        except Exception as e:
             st.write("**DCF: <Unable to Source>**")
 
         high_data = {
@@ -248,6 +249,7 @@ if st.sidebar.button("Generate Thesis"):
         df_high = df_high.reset_index().rename(columns={'index': 'Metric/Query'})
         edited_high = st.data_editor(df_high, column_config={"Flag": st.column_config.SelectboxColumn("Flag", options=["Green", "Orange", "Red"])}, use_container_width=True, key="high_editor")
 
+        # CUSTOM THESIS BLOCK
         st.markdown("### 🎯 Custom Thesis Block (Horyzon-style)")
         col_a, col_b = st.columns(2)
         with col_a:
@@ -257,10 +259,12 @@ if st.sidebar.button("Generate Thesis"):
             st.text_area("What Would Change My Mind (Thesis Breakers)", value="Debt covenant breach or ROIC < WACC", height=120)
             st.date_input("Portfolio Role & Next Review Date", value=datetime.now())
 
+        # Conviction Score
         all_flags = pd.concat([edited_entry['Flag'], edited_mid['Flag'], edited_high['Flag']])
         conviction = (all_flags == "Green").sum() - (all_flags == "Red").sum()
         st.metric("Conviction Score", f"{conviction} / 10", help="+1 Green, 0 Orange, -1 Red")
 
+        # EXPORT
         if st.button("📥 Export to Excel (with colors + dropdowns)"):
             output = BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
