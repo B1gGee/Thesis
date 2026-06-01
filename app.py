@@ -13,10 +13,15 @@ st.title("📊 Stock Thesis Monitor")
 st.caption("Automated thesis builder • Entry / Mid / High Level • Custom triggers • GitHub-ready")
 
 ticker = st.sidebar.text_input("Enter Ticker (e.g. AAPL, TSLA, BHP.AX)", value="AAPL").upper().strip()
+
 if st.sidebar.button("Generate Thesis"):
     with st.spinner(f"Fetching data for {ticker}..."):
-        stock = yf.Ticker(ticker)
-        info = stock.info
+        try:
+            stock = yf.Ticker(ticker)
+            info = stock.info
+        except Exception as e:
+            st.error(f"❌ Yahoo Finance is having a temporary issue right now.\n\nPlease wait 30–60 seconds and try again.\n\nError: {type(e).__name__}")
+            st.stop()
         today = datetime.now().strftime("%Y-%m-%d")
 
         # === TOP HEADER ===
