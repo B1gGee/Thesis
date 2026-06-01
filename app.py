@@ -12,15 +12,44 @@ st.set_page_config(page_title="Stock Thesis Monitor", layout="wide", page_icon="
 st.title("📊 Stock Thesis Monitor")
 st.caption("Automated thesis builder • Entry / Mid / High Level • Custom triggers • GitHub-ready")
 
+import time
+import requests
+import appdirs as ad
+
+# Fix for Streamlit Cloud cache permission error
+ad.user_cache_dir = lambda *args: "/tmp"
+
 ticker = st.sidebar.text_input("Enter Ticker (e.g. AAPL, TSLA, BHP.AX)", value="AAPL").upper().strip()
 
 if st.sidebar.button("Generate Thesis"):
     with st.spinner(f"Fetching data for {ticker}..."):
-        try:
-            stock = yf.Ticker(ticker)
-            info = stock.info
-        except Exception as e:
-            st.error(f"❌ Yahoo Finance is having a temporary issue right now.\n\nPlease wait 30–60 seconds and try again.\n\nError: {type(e).__name__}")
+        success = False
+        for attempt in range(4):   # try up to 4 times
+            try:
+                # Use browser-like headers to reduce rate-limit chance
+                session = requests.Session()
+                session.headers.update({
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                })
+                
+                stock = yf.Ticker(ticker, session=session)
+                info = stock.info
+                
+                # If we got here, it worked
+                success = True
+                break
+            except Exception as e:
+                error_str = str(e).lower()
+                if "rate limit" in error_str or "too many requests" in error_str:
+                    wait = 3 * (attempt + 1)   # wait 3s, 6s, 9s, 12s
+                    st.warning(f"⏳ Yahoo is rate-limiting us (attempt {attempt+1}/4). Waiting {wait} seconds...")
+                    time.sleep(wait)
+                else:
+                    st.error(f"Unexpected error: {type(e).__name__}")
+                    st.stop()
+        
+        if not success:
+            st.error("❌ Yahoo Finance is still rate-limiting us.\n\nTry again in 2 minutes or try a US ticker like AAPL first.")
             st.stop()
         today = datetime.now().strftime("%Y-%m-%d")
 
